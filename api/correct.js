@@ -5,6 +5,8 @@
 //   APP_PASSCODE        (required)  any word you choose; the app asks for it once
 //   OPENROUTER_MODEL    (optional)  defaults to anthropic/claude-haiku-5.5
 
+const { jsonrepair } = require("jsonrepair");
+
 const DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
 const MAX_TEXT = 8000;
 
@@ -55,15 +57,67 @@ Card rules (very important — the cards must be HARD but FAIR):
 
 function extractJson(text) {
   if (!text) return null;
-  const cleaned = text.replace(/```json|```/g, "").trim();
+  const cleaned = String(text).replace(/```json|```/g, "").trim();
   try { return JSON.parse(cleaned); } catch (_) {}
   const start = cleaned.indexOf("{");
+  if (start < 0) return null;
   const end = cleaned.lastIndexOf("}");
-  if (start >= 0 && end > start) {
+  if (end > start) {
     try { return JSON.parse(cleaned.slice(start, end + 1)); } catch (_) {}
   }
+  // repair common problems: unescaped quotes inside strings ("escargot"), cut-off answers, trailing commas
+  try { return JSON.parse(jsonrepair(cleaned.slice(start))); } catch (_) {}
   return null;
 }
+
+// The answer is requested as a "tool call": the provider then returns properly escaped JSON.
+const REVIEW_TOOL = {
+  type: "function",
+  function: {
+    name: "submit_review",
+    description: "Submit the review of the journal entry and today's flashcards.",
+    parameters: {
+      type: "object",
+      properties: {
+        summary: { type: "string" },
+        corrected: { type: "string" },
+        mistakes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              original: { type: "string" }, correction: { type: "string" },
+              explanation: { type: "string" }, category: { type: "string" }
+            },
+            required: ["original", "correction", "explanation"]
+          }
+        },
+        improvements: { type: "array", items: { type: "string" } },
+        study: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { topic: { type: "string" }, why: { type: "string" }, query: { type: "string" } },
+            required: ["topic", "query"]
+          }
+        },
+        cards: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              sentence: { type: "string" }, answer: { type: "string" }, lemma: { type: "string" },
+              pos: { type: "string" }, translation: { type: "string" },
+              examples: { type: "array", items: { type: "string" } }, note: { type: "string" }
+            },
+            required: ["sentence", "answer", "translation"]
+          }
+        }
+      },
+      required: ["summary", "corrected", "mistakes", "improvements", "study", "cards"]
+    }
+  }
+};
 
 // Make sure every card is usable: one blank, no empty answer.
 function cleanCards(cards, nCards) {
@@ -95,7 +149,7 @@ function cleanCards(cards, nCards) {
   return out.slice(0, nCards);
 }
 
-async function callOpenRouter(messages) {
+async function postOpenRouter(payload) {
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -103,21 +157,43 @@ async function callOpenRouter(messages) {
       "Content-Type": "application/json",
       "X-Title": "Diario ES"
     },
-    body: JSON.stringify({
-      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
-      messages,
-      temperature: 0.5,
-      max_tokens: 4000
-    })
+    body: JSON.stringify(payload)
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    const msg = (data && data.error && data.error.message) || `OpenRouter error ${resp.status}`;
+  return { ok: resp.ok, status: resp.status, data };
+}
+
+// Returns { parsed, raw, finish }
+async function callOpenRouter(messages) {
+  const base = {
+    model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
+    messages,
+    temperature: 0.5,
+    max_tokens: 8000
+  };
+  let r = await postOpenRouter(Object.assign({}, base, {
+    tools: [REVIEW_TOOL],
+    tool_choice: { type: "function", function: { name: "submit_review" } }
+  }));
+  if (!r.ok) {
+    // some models do not support tools: try once without
+    r = await postOpenRouter(base);
+  }
+  if (!r.ok) {
+    const msg = (r.data && r.data.error && r.data.error.message) || `OpenRouter error ${r.status}`;
     throw new Error(msg);
   }
-  return data.choices && data.choices[0] && data.choices[0].message
-    ? data.choices[0].message.content
-    : "";
+  const choice = (r.data.choices && r.data.choices[0]) || {};
+  const msg = choice.message || {};
+  const finish = choice.finish_reason || "";
+  const call = msg.tool_calls && msg.tool_calls[0];
+  if (call && call.function) {
+    const args = call.function.arguments;
+    const parsed = typeof args === "object" ? args : extractJson(args);
+    if (parsed) return { parsed, raw: String(args), finish };
+  }
+  const raw = msg.content || "";
+  return { parsed: extractJson(raw), raw, finish };
 }
 
 module.exports = async function handler(req, res) {
@@ -156,18 +232,16 @@ module.exports = async function handler(req, res) {
   ];
 
   try {
-    let raw = await callOpenRouter(messages);
-    let parsed = extractJson(raw);
-    if (!parsed) {
-      // one retry asking for strict JSON
-      raw = await callOpenRouter(messages.concat([
-        { role: "assistant", content: raw || "" },
-        { role: "user", content: "That was not valid JSON. Reply again with ONLY the JSON object." }
-      ]));
-      parsed = extractJson(raw);
+    let out = await callOpenRouter(messages);
+    if (!out.parsed) {
+      console.log("Unreadable answer (finish:", out.finish, "):", out.raw.slice(0, 500));
+      out = await callOpenRouter(messages); // one silent retry
     }
+    const parsed = out.parsed;
     if (!parsed) {
-      res.status(502).json({ error: "The AI answer could not be read. Try again." });
+      console.log("Unreadable answer again (finish:", out.finish, "):", out.raw.slice(0, 500));
+      const why = out.finish === "length" ? " (the answer was too long and got cut)" : "";
+      res.status(502).json({ error: "The AI answer could not be read" + why + ". Try again, or send me the Vercel log." });
       return;
     }
     res.status(200).json({

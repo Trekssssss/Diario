@@ -1,0 +1,7 @@
+{
+  "name": "diario",
+  "private": true,
+  "dependencies": {
+    "jsonrepair": "3.14.1"
+  }
+}
