@@ -20,8 +20,20 @@ Return ONLY a JSON object (no markdown, no code fences) with exactly this shape:
 {
   "summary": string,            // one honest sentence about today's entry, in ${fb}
   "corrected": string,          // the full entry rewritten in correct, natural Mexican/Latin American Spanish, keeping the student's meaning and voice; every English/French word replaced by Spanish
-  "mistakes": [                 // the most important mistakes first, max 12
-    { "original": string, "correction": string, "explanation": string /* short, in ${fb} */, "category": "grammar"|"vocabulary"|"spelling"|"accents"|"word order"|"false friend"|"word not in Spanish" }
+  "mistakes": [                 // the most important mistakes first, max 12 (group tiny spelling/accent slips into ONE item)
+    {
+      "original": string,       // the student's words, copied exactly
+      "correction": string,     // the corrected words
+      "category": "verb tense"|"grammar"|"vocabulary"|"spelling"|"accents"|"word order"|"false friend"|"word not in Spanish",
+      "explanation": string,    // in ${fb}, 1-2 clear sentences: WHAT is wrong and WHY the correction is right (see explanation rules)
+      "more": {                 // the "learn more" tab: go one level deeper, in ${fb}
+        "rule": string,         // 2-4 sentences: the general rule behind this correction, and how to recognise when it applies next time
+        "examples": [           // 2 or 3 short, everyday Spanish sentences that show the rule; when useful, one shows the contrast (the other form and how the meaning changes)
+          { "es": string, "fr": string /* translation in ${fb} */ }
+        ],
+        "tip": string           // optional: a memory trick or a French/English comparison (e.g. a "passé composé" in French is often a "pretérito" in Mexico). Empty string if none.
+      }
+    }
   ],
   "improvements": [string],     // 2 to 4 concrete tips in ${fb} to sound more natural or fix recurring patterns
   "study": [                    // 2 or 3 things worth looking up today (grammar points or vocabulary areas behind the mistakes)
@@ -39,6 +51,16 @@ Return ONLY a JSON object (no markdown, no code fences) with exactly this shape:
     }
   ]
 }
+
+Rules for "corrected":
+- Correct EVERY mistake, including the beginning of the entry. Do not leave any error in, and never introduce new ones (check gender/number agreement in your own text, e.g. "mucho tráfico", not "muchos tráfico").
+- Rewrite the WHOLE entry to the end. Never cut it, never end with "..." unless the student did.
+
+Explanation rules (very important — the student wants to understand, not just see the fix):
+- Write for a French speaker: say what is wrong, then why. Plain words, no unexplained jargon.
+- VERB TENSE / MOOD: whenever you change a verb's tense or mood (presente, pretérito indefinido, pretérito perfecto compuesto, imperfecto, futuro, condicional, subjuntivo...), ALWAYS name both forms and say WHY the context requires the new one. Point at the clue in the sentence (a time marker like "hoy", "ayer", "esta mañana", a finished action vs. a background description, a trigger like "me gustaría que" → subjuntivo). Example of a good explanation: "Tu as écrit 'he hecho' (pretérito perfecto, comme le passé composé). Au Mexique, une action terminée se dit presque toujours au pretérito indefinido : 'hice'. Indice : l'action est finie et datée ('en la mañana')."
+- Do the same for ser/estar, por/para, prepositions and articles: name the rule, not only the fix.
+- In "more", go deeper than "explanation" without repeating it word for word, and make the examples clearly show the rule (for tenses: one sentence with the right tense and, when helpful, one with the other tense and how the meaning changes).
 
 How to choose the ${nCards} card targets, in this priority order:
 1. Words or expressions the student wrote in English or French because they did not know them in Spanish.
@@ -87,9 +109,21 @@ const REVIEW_TOOL = {
             type: "object",
             properties: {
               original: { type: "string" }, correction: { type: "string" },
-              explanation: { type: "string" }, category: { type: "string" }
+              explanation: { type: "string" }, category: { type: "string" },
+              more: {
+                type: "object",
+                properties: {
+                  rule: { type: "string" },
+                  examples: {
+                    type: "array",
+                    items: { type: "object", properties: { es: { type: "string" }, fr: { type: "string" } }, required: ["es"] }
+                  },
+                  tip: { type: "string" }
+                },
+                required: ["rule", "examples"]
+              }
             },
-            required: ["original", "correction", "explanation"]
+            required: ["original", "correction", "explanation", "more"]
           }
         },
         improvements: { type: "array", items: { type: "string" } },
@@ -169,7 +203,7 @@ async function callOpenRouter(messages) {
     model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
     messages,
     temperature: 0.5,
-    max_tokens: 8000
+    max_tokens: 12000
   };
   let r = await postOpenRouter(Object.assign({}, base, {
     tools: [REVIEW_TOOL],

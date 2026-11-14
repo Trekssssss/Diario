@@ -194,6 +194,23 @@
     renderStepper();
   }
 
+  // "Más información" tab under a mistake: the rule in more depth + examples. Older entries have no "more".
+  function renderMore(more) {
+    if (!more || (!more.rule && !(more.examples || []).length)) return "";
+    var h = '<details class="more"><summary>Más información</summary><div class="more-body">';
+    if (more.rule) h += '<p class="rule">' + esc(more.rule) + "</p>";
+    var ex = Array.isArray(more.examples) ? more.examples : [];
+    if (ex.length) {
+      h += '<ul class="examples">' + ex.map(function (e) {
+        if (typeof e === "string") return "<li><span class=\"es\">" + esc(e) + "</span></li>";
+        return '<li><span class="es">' + esc(e.es || "") + "</span>" +
+          (e.fr ? '<span class="tr">' + esc(e.fr) + "</span>" : "") + "</li>";
+      }).join("") + "</ul>";
+    }
+    if (more.tip) h += '<p class="tip">💡 ' + esc(more.tip) + "</p>";
+    return h + "</div></details>";
+  }
+
   function renderReview(entry) {
     var r = entry.result || {};
     var html = '<p class="muted" style="margin:0 0 12px">' + esc(niceDate(entry.date)) + "</p>";
@@ -210,7 +227,7 @@
       mistakes.forEach(function (m) {
         html += '<div class="mistake"><div class="pair"><del>' + esc(m.original) + "</del> → <ins>" + esc(m.correction) + "</ins>" +
           (m.category ? '<span class="chip">' + esc(m.category) + "</span>" : "") +
-          '</div><div class="why">' + esc(m.explanation) + "</div></div>";
+          '</div><div class="why">' + esc(m.explanation) + "</div>" + renderMore(m.more) + "</div>";
       });
       html += "</div>";
     }
