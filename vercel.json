@@ -1,5 +1,7 @@
 {
   "functions": {
-    "api/correct.js": { "maxDuration": 60 }
+    "api/correct.js": { "maxDuration": 60 },
+    "api/transcribe.js": { "maxDuration": 60 },
+    "api/followup.js": { "maxDuration": 30 }
   }
 }

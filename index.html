@@ -25,33 +25,63 @@
   </header>
 
   <nav class="tabs" role="tablist">
-    <button class="tab active" data-view="write" role="tab">Escribir</button>
-    <button class="tab" data-view="history" role="tab">Historial</button>
+    <button class="tab active" data-view="today" role="tab">Hoy</button>
+    <button class="tab" data-view="calendar" role="tab">Calendario</button>
     <button class="tab" data-view="settings" role="tab">Ajustes</button>
   </nav>
 
   <main>
-    <!-- WRITE -->
-    <section id="view-write" class="view active">
-      <div id="stepper" class="stepper"></div>
-      <div id="composer">
-        <textarea id="entry" placeholder="Hoy…" spellcheck="false" autocorrect="off" autocapitalize="sentences"></textarea>
-        <div class="composer-bar">
-          <span class="muted" id="wordcount">0 palabras</span>
-          <button class="primary" id="btn-correct">Corregir</button>
+    <!-- TODAY: home (two doors + streak) or the entry flow -->
+    <section id="view-today" class="view active">
+
+      <div id="home">
+        <h2 class="home-q">¿Cómo fue tu día?</h2>
+        <div class="doors">
+          <button class="door" id="btn-go-write">
+            <span class="door-word">Escribir</span>
+            <span class="door-sub">Teclea lo que pasó</span>
+          </button>
+          <button class="door" id="btn-go-speak">
+            <span class="door-word">Hablar</span>
+            <span class="door-sub">Cuéntalo en voz alta, yo lo escribo</span>
+          </button>
         </div>
+        <div id="streakboard"></div>
       </div>
-      <div id="loading" class="loading hidden">
-        <div class="spinner"></div>
-        <p>Leyendo tu diario…</p>
+
+      <div id="flow" class="hidden">
+        <button class="backlink" id="btn-flow-back">← Hoy</button>
+        <div id="stepper" class="stepper"></div>
+
+        <div id="composer">
+          <div id="micpanel" class="micpanel hidden">
+            <button id="btn-rec" class="recbtn" aria-label="Grabar o parar"><span class="recdot"></span></button>
+            <div class="rec-right">
+              <div class="rec-time" id="rec-time">0:00</div>
+              <div class="muted" id="rec-status">Toca el botón rojo y cuenta tu día (máx. 5 min). Luego podrás editar el texto.</div>
+            </div>
+          </div>
+          <textarea id="entry" placeholder="Hoy…" spellcheck="false" autocorrect="off" autocapitalize="sentences"></textarea>
+          <div class="composer-bar">
+            <span class="muted" id="wordcount">0 palabras</span>
+            <button class="primary" id="btn-correct">Corregir</button>
+          </div>
+        </div>
+
+        <div id="loading" class="loading hidden">
+          <div class="spinner"></div>
+          <p>Leyendo tu diario…</p>
+        </div>
+        <div id="error" class="error hidden"></div>
+        <div id="result"></div>
       </div>
-      <div id="error" class="error hidden"></div>
-      <div id="result"></div>
+
     </section>
 
-    <!-- HISTORY -->
-    <section id="view-history" class="view">
-      <div id="history-list"></div>
+    <!-- CALENDAR -->
+    <section id="view-calendar" class="view">
+      <div id="calendar"></div>
+      <div id="day-entries"></div>
     </section>
 
     <!-- SETTINGS -->
@@ -61,6 +91,30 @@
           <span>Código de acceso</span>
           <input id="set-passcode" type="password" autocomplete="off" placeholder="el APP_PASSCODE de Vercel">
         </label>
+        <label class="field">
+          <span>País (variedad del español)</span>
+          <select id="set-country">
+            <option value="mx">México</option>
+            <option value="es">España</option>
+            <option value="ar">Argentina</option>
+            <option value="co">Colombia</option>
+            <option value="pe">Perú</option>
+            <option value="cl">Chile</option>
+            <option value="neutral">Latinoamérica (neutro)</option>
+          </select>
+          <small>Las correcciones siguen el español de ese país: ustedes/vosotros, tiempos del pasado, vocabulario local.</small>
+        </label>
+        <div class="field">
+          <span>Qué corregir</span>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="chk-grammar"> Gramática</label>
+            <label class="check"><input type="checkbox" id="chk-verbs"> Conjugación y tiempos</label>
+            <label class="check"><input type="checkbox" id="chk-spelling"> Ortografía y acentos</label>
+            <label class="check"><input type="checkbox" id="chk-vocabulary"> Vocabulario</label>
+            <label class="check"><input type="checkbox" id="chk-style"> Naturalidad</label>
+          </div>
+          <small>La versión corregida siempre lo corrige todo; esto filtra la lista de errores y los consejos.</small>
+        </div>
         <label class="field">
           <span>Mazo de Anki</span>
           <input id="set-deck" type="text" placeholder="Español">
@@ -108,6 +162,7 @@
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <script src="apkg.js" defer></script>
+  <script src="recorder.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

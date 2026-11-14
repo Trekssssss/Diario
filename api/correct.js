@@ -12,14 +12,48 @@ const MAX_TEXT = 8000;
 
 const LANG_NAMES = { en: "English", fr: "French", es: "Spanish" };
 
-function buildSystemPrompt({ nCards, level, feedbackLang }) {
+// Regional varieties: the student picks the country they are in (settings),
+// and the teacher corrects toward that country's Spanish.
+const VARIETIES = {
+  mx: { name: "Mexican Spanish", where: "Mexico",
+    notes: "Use 'ustedes' (never 'vosotros'). A finished past action almost always takes the pretérito indefinido ('hoy comí', not 'hoy he comido'). Prefer everyday Mexican words: manejar, carro, camión (city bus), platicar, computadora, celular, jugo." },
+  es: { name: "European Spanish (Spain)", where: "Spain",
+    notes: "'Vosotros' is the normal informal plural. For actions finished today or very recently, the pretérito perfecto compuesto is natural ('hoy he comido'). Prefer Spain words: conducir, coche, autobús, charlar, ordenador, móvil, zumo." },
+  ar: { name: "Rioplatense Spanish (Argentina)", where: "Argentina",
+    notes: "'Vos' replaces 'tú' (vos tenés, vos querés, vení). 'Ustedes' only. Finished past actions take the pretérito indefinido. Prefer: manejar, auto, colectivo, charlar, computadora, celular, jugo." },
+  co: { name: "Colombian Spanish", where: "Colombia",
+    notes: "'Usted' is very common even between friends; 'ustedes' only. Finished past actions usually take the pretérito indefinido. Prefer: manejar, carro, bus, charlar, computador, celular, jugo." },
+  pe: { name: "Peruvian Spanish", where: "Peru",
+    notes: "'Ustedes' only. Finished past actions usually take the pretérito indefinido. Prefer: manejar, carro, micro, conversar, computadora, celular, jugo." },
+  cl: { name: "Chilean Spanish", where: "Chile",
+    notes: "'Ustedes' only. Finished past actions take the pretérito indefinido. Keep slang light (the student is a learner) but accept common Chilean words: manejar, auto, micro, celular, computador, jugo." },
+  neutral: { name: "neutral Latin American Spanish", where: "Latin America",
+    notes: "'Ustedes' only, no 'vosotros'. Finished past actions take the pretérito indefinido. Use vocabulary understood across Latin America." }
+};
+
+// Areas the student can switch on/off in settings ("Qué corregir").
+const FOCUS_AREAS = {
+  grammar: "grammar (agreement, articles, prepositions, ser/estar, word order)",
+  verbs: "verb conjugation and the choice of tense or mood",
+  spelling: "spelling and accents",
+  vocabulary: "vocabulary (wrong word, false friends, words left in English or French)",
+  style: "naturalness (phrasing a native would say differently)"
+};
+
+function buildSystemPrompt({ nCards, level, feedbackLang, country, focus }) {
   const fb = LANG_NAMES[feedbackLang] || "English";
-  return `You are an excellent, demanding Spanish teacher. Your student is a native French speaker who also speaks English, currently living in Guadalajara, Mexico. Their Spanish level is about ${level}. Every day they write a short journal entry in Spanish. Sometimes they write a word in English or French because they don't know it in Spanish.
+  const v = VARIETIES[country] || VARIETIES.mx;
+  const focusKeys = (Array.isArray(focus) ? focus : []).filter(function (k) { return FOCUS_AREAS[k]; });
+  const allKeys = Object.keys(FOCUS_AREAS);
+  const focusText = (focusKeys.length && focusKeys.length < allKeys.length)
+    ? focusKeys.map(function (k) { return FOCUS_AREAS[k]; }).join("; ")
+    : "all areas";
+  return `You are an excellent, demanding Spanish teacher. Your student is a native French speaker who also speaks English, currently in ${v.where}. Their Spanish level is about ${level}. Target variety: ${v.name}. ${v.notes} Every day they write (or dictate) a short journal entry in Spanish. Sometimes they write a word in English or French because they don't know it in Spanish.
 
 Return ONLY a JSON object (no markdown, no code fences) with exactly this shape:
 {
   "summary": string,            // one honest sentence about today's entry, in ${fb}
-  "corrected": string,          // the full entry rewritten in correct, natural Mexican/Latin American Spanish, keeping the student's meaning and voice; every English/French word replaced by Spanish
+  "corrected": string,          // the full entry rewritten in correct, natural ${v.name}, keeping the student's meaning and voice; every English/French word replaced by Spanish
   "mistakes": [                 // the most important mistakes first, max 12 (group tiny spelling/accent slips into ONE item)
     {
       "original": string,       // the student's words, copied exactly
@@ -58,9 +92,14 @@ Rules for "corrected":
 
 Explanation rules (very important — the student wants to understand, not just see the fix):
 - Write for a French speaker: say what is wrong, then why. Plain words, no unexplained jargon.
-- VERB TENSE / MOOD: whenever you change a verb's tense or mood (presente, pretérito indefinido, pretérito perfecto compuesto, imperfecto, futuro, condicional, subjuntivo...), ALWAYS name both forms and say WHY the context requires the new one. Point at the clue in the sentence (a time marker like "hoy", "ayer", "esta mañana", a finished action vs. a background description, a trigger like "me gustaría que" → subjuntivo). Example of a good explanation: "Tu as écrit 'he hecho' (pretérito perfecto, comme le passé composé). Au Mexique, une action terminée se dit presque toujours au pretérito indefinido : 'hice'. Indice : l'action est finie et datée ('en la mañana')."
+- VERB TENSE / MOOD: whenever you change a verb's tense or mood (presente, pretérito indefinido, pretérito perfecto compuesto, imperfecto, futuro, condicional, subjuntivo...), ALWAYS name both forms and say WHY the context requires the new one. Point at the clue in the sentence (a time marker like "hoy", "ayer", "esta mañana", a finished action vs. a background description, a trigger like "me gustaría que" → subjuntivo). Example of a good explanation: "Tu as écrit 'he hecho' (pretérito perfecto, comme le passé composé). Au Mexique, une action terminée se dit presque toujours au pretérito indefinido : 'hice'. Indice : l'action est finie et datée ('en la mañana')." (that example is for Mexico — ALWAYS adapt tense advice to the target variety, ${v.name}: in Spain "hoy he comido" is the natural form, in most of Latin America "hoy comí" is).
 - Do the same for ser/estar, por/para, prepositions and articles: name the rule, not only the fix.
 - In "more", go deeper than "explanation" without repeating it word for word, and make the examples clearly show the rule (for tenses: one sentence with the right tense and, when helpful, one with the other tense and how the meaning changes).
+
+What the student wants feedback on today: ${focusText}.
+- "mistakes", "improvements" and "study" must only cover those areas; silently skip problems outside them.
+- "corrected" always fixes everything, whatever the selection.
+- Flashcards may always target words the student wrote in English or French, plus the selected areas.
 
 How to choose the ${nCards} card targets, in this priority order:
 1. Words or expressions the student wrote in English or French because they did not know them in Spanish.
@@ -253,10 +292,12 @@ module.exports = async function handler(req, res) {
   const nCards = Math.min(10, Math.max(1, parseInt(body.nCards, 10) || 5));
   const level = ["A2", "B1", "B2", "C1"].includes(body.level) ? body.level : "B1";
   const feedbackLang = ["en", "fr", "es"].includes(body.feedbackLang) ? body.feedbackLang : "en";
+  const country = VARIETIES[body.country] ? body.country : "mx";
+  const focus = Array.isArray(body.focus) ? body.focus.map(String) : [];
   const known = Array.isArray(body.knownWords) ? body.knownWords.map(String).slice(-400) : [];
 
   const messages = [
-    { role: "system", content: buildSystemPrompt({ nCards, level, feedbackLang }) },
+    { role: "system", content: buildSystemPrompt({ nCards, level, feedbackLang, country, focus }) },
     {
       role: "user",
       content:
