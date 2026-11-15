@@ -178,6 +178,9 @@
     save();
     updateWordCount();
   });
+  // While the keyboard is open, hide the bottom tab bar so the whole screen is for writing.
+  entryEl.addEventListener("focus", function () { document.body.classList.add("kbd"); });
+  entryEl.addEventListener("blur", function () { document.body.classList.remove("kbd"); });
   function updateWordCount() {
     var n = countWords(entryEl.value);
     $("wordcount").textContent = n + (n === 1 ? " palabra" : " palabras");
@@ -653,8 +656,12 @@
     btn.textContent = n ? "Añadir " + n + (n === 1 ? " tarjeta" : " tarjetas") + " a Anki" : "Ninguna tarjeta seleccionada";
     if (entry.exportedAt) btn.textContent += " ✓";
     bar.classList.remove("hidden");
+    document.body.classList.add("exporting"); // extra bottom padding so cards clear the bar
   }
-  function hideExportBar() { if (bar) bar.classList.add("hidden"); }
+  function hideExportBar() {
+    if (bar) bar.classList.add("hidden");
+    document.body.classList.remove("exporting");
+  }
 
   function markExported(entry) {
     entry.exportedAt = Date.now();
