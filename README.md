@@ -16,10 +16,18 @@ Cards are picked in this order: words you wrote in English/French → words you 
 
 1. **Vercel**: vercel.com → *Add New… → Project* → import this GitHub repo. Framework preset: **Other**. No build command.
 2. Before clicking *Deploy*, open **Environment Variables** and add:
-   - `OPENROUTER_API_KEY` = your OpenRouter key
    - `APP_PASSCODE` = any word you choose (stops strangers from spending your credits)
-   - optional `OPENROUTER_MODEL` = any OpenRouter model id (default `anthropic/claude-haiku-5.5`, under 1 cent per entry)
-   - optional `OPENROUTER_TRANSCRIBE_MODEL` = audio-capable model for voice entries (default `google/gemini-2.5-flash`, well under 1 cent per recording)
+   - **One AI provider** (or both — if both are set, Infomaniak is used first and OpenRouter is the automatic fallback):
+     - **Infomaniak** (Swiss, green — the datacenter's waste heat warms ~6,000 homes):
+       - `INFOMANIAK_API_TOKEN` = your Infomaniak API token
+       - `INFOMANIAK_PRODUCT_ID` = your AI product id (from manager.infomaniak.com → AI Tools)
+       - optional `INFOMANIAK_MODEL` = chat model id (default `mistralai/Mistral-Small-4-119B-2603`; for a 100% Swiss model use `swiss-ai/Apertus-v1.5-70B`)
+       - optional `INFOMANIAK_TRANSCRIBE_MODEL` = speech-to-text model (default `whisper`)
+     - **OpenRouter**:
+       - `OPENROUTER_API_KEY` = your OpenRouter key
+       - optional `OPENROUTER_MODEL` = chat model id (default `anthropic/claude-haiku-5.5`)
+       - optional `OPENROUTER_TRANSCRIBE_MODEL` = audio-capable model (default `google/gemini-2.5-flash`)
+   - optional `AI_PROVIDER` = `infomaniak` (default) or `openrouter` — which provider to try first
 3. Deploy, open the URL in Safari → Share → **Add to Home Screen** (this also stops Safari from clearing your journal).
 4. In the app, go to **Ajustes**: type your passcode and the **exact name of your Anki deck** (e.g. `Español`).
 

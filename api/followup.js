@@ -3,7 +3,7 @@
 // Returns { answer }: short plain text in the feedback language.
 // Same passcode and OpenRouter key as /api/correct.
 
-const DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
+const ai = require("./_ai.js");
 const LANG_NAMES = { en: "English", fr: "French", es: "Spanish" };
 
 // Small copy of the variety names so the answer matches the country chosen in settings.
@@ -35,8 +35,9 @@ module.exports = async function handler(req, res) {
     res.status(405).json({ error: "Use POST" });
     return;
   }
-  if (!process.env.OPENROUTER_API_KEY || !process.env.APP_PASSCODE) {
-    res.status(500).json({ error: "Server not configured: set OPENROUTER_API_KEY and APP_PASSCODE in Vercel." });
+  const configErr = ai.configError();
+  if (configErr) {
+    res.status(500).json({ error: configErr });
     return;
   }
   if (req.headers["x-passcode"] !== process.env.APP_PASSCODE) {
@@ -76,32 +77,15 @@ module.exports = async function handler(req, res) {
   userContent += `The student now asks:\n"${question}"`;
 
   try {
-    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "X-Title": "Diario ES"
-      },
-      body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
-        temperature: 0.4,
-        max_tokens: 700,
-        messages: [
-          { role: "system", content: buildSystemPrompt({ level, feedbackLang, country }) },
-          { role: "user", content: userContent }
-        ]
-      })
+    const result = await ai.chatText({
+      temperature: 0.4,
+      max_tokens: 700,
+      messages: [
+        { role: "system", content: buildSystemPrompt({ level, feedbackLang, country }) },
+        { role: "user", content: userContent }
+      ]
     });
-    const data = await resp.json().catch(function () { return {}; });
-    if (!resp.ok) {
-      const message = (data.error && data.error.message) || ("OpenRouter error " + resp.status);
-      throw new Error(message);
-    }
-    const choice = (data.choices && data.choices[0]) || {};
-    const answer = String((choice.message && choice.message.content) || "").trim();
-    if (!answer) throw new Error("Empty answer. Try again.");
-    res.status(200).json({ answer });
+    res.status(200).json({ answer: result.content });
   } catch (err) {
     res.status(502).json({ error: String(err.message || err) });
   }

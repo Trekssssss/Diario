@@ -6,8 +6,8 @@
 //   OPENROUTER_MODEL    (optional)  defaults to anthropic/claude-haiku-5.5
 
 const { jsonrepair } = require("jsonrepair");
+const ai = require("./_ai.js");
 
-const DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
 const MAX_TEXT = 8000;
 
 const LANG_NAMES = { en: "English", fr: "French", es: "Spanish" };
@@ -222,39 +222,20 @@ function cleanCards(cards, nCards) {
   return out.slice(0, nCards);
 }
 
-async function postOpenRouter(payload) {
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "X-Title": "Diario ES"
-    },
-    body: JSON.stringify(payload)
-  });
-  const data = await resp.json().catch(() => ({}));
-  return { ok: resp.ok, status: resp.status, data };
-}
-
-// Returns { parsed, raw, finish }
-async function callOpenRouter(messages) {
-  const base = {
-    model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL,
-    messages,
-    temperature: 0.5,
-    max_tokens: 12000
-  };
-  let r = await postOpenRouter(Object.assign({}, base, {
+// Ask ONE provider for the review. Tries a tool call first (the provider then returns clean,
+// properly escaped JSON); if that model or provider doesn't support tools, retries once as a
+// plain JSON answer. Returns { parsed, raw, finish }.
+async function callModel(target, messages) {
+  const base = { messages, temperature: 0.5, max_tokens: 12000 };
+  let r = await ai.postChatRaw(target, Object.assign({}, base, {
     tools: [REVIEW_TOOL],
     tool_choice: { type: "function", function: { name: "submit_review" } }
   }));
   if (!r.ok) {
-    // some models do not support tools: try once without
-    r = await postOpenRouter(base);
+    r = await ai.postChatRaw(target, base); // some models do not support tools
   }
   if (!r.ok) {
-    const msg = (r.data && r.data.error && r.data.error.message) || `OpenRouter error ${r.status}`;
-    throw new Error(msg);
+    throw new Error(ai.errorMessage(r.data, r.status, target.name));
   }
   const choice = (r.data.choices && r.data.choices[0]) || {};
   const msg = choice.message || {};
@@ -269,13 +250,24 @@ async function callOpenRouter(messages) {
   return { parsed: extractJson(raw), raw, finish };
 }
 
+// One provider's full attempt: the call plus a single silent retry if the answer was unreadable.
+async function reviewWith(target, messages) {
+  let out = await callModel(target, messages);
+  if (!out.parsed) {
+    console.log("Unreadable answer from", target.name, "(finish:", out.finish, "):", out.raw.slice(0, 500));
+    out = await callModel(target, messages);
+  }
+  return out;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Use POST" });
     return;
   }
-  if (!process.env.OPENROUTER_API_KEY || !process.env.APP_PASSCODE) {
-    res.status(500).json({ error: "Server not configured: set OPENROUTER_API_KEY and APP_PASSCODE in Vercel." });
+  const configErr = ai.configError();
+  if (configErr) {
+    res.status(500).json({ error: configErr });
     return;
   }
   if (req.headers["x-passcode"] !== process.env.APP_PASSCODE) {
@@ -306,19 +298,41 @@ module.exports = async function handler(req, res) {
     }
   ];
 
+  // Try each configured provider in order (Infomaniak first by default, OpenRouter as fallback).
+  // Move on to the next provider on a hard error OR an unreadable answer.
+  const targets = ai.chatTargets();
   try {
-    let out = await callOpenRouter(messages);
-    if (!out.parsed) {
-      console.log("Unreadable answer (finish:", out.finish, "):", out.raw.slice(0, 500));
-      out = await callOpenRouter(messages); // one silent retry
+    let good = null;
+    let usedProvider = "";
+    let usedModel = "";
+    let lastUnreadable = null;
+    let lastError = new Error("No AI provider configured.");
+    for (const target of targets) {
+      try {
+        const attempt = await reviewWith(target, messages);
+        if (attempt.parsed) {
+          good = attempt;
+          usedProvider = target.name;
+          usedModel = target.model;
+          break;
+        }
+        lastUnreadable = { attempt: attempt, provider: target.name };
+      } catch (e) {
+        lastError = e;
+      }
     }
-    const parsed = out.parsed;
-    if (!parsed) {
-      console.log("Unreadable answer again (finish:", out.finish, "):", out.raw.slice(0, 500));
-      const why = out.finish === "length" ? " (the answer was too long and got cut)" : "";
-      res.status(502).json({ error: "The AI answer could not be read" + why + ". Try again, or send me the Vercel log." });
-      return;
+
+    if (!good) {
+      if (lastUnreadable) {
+        console.log("Unreadable answer from", lastUnreadable.provider, "(finish:", lastUnreadable.attempt.finish, "):", lastUnreadable.attempt.raw.slice(0, 500));
+        const why = lastUnreadable.attempt.finish === "length" ? " (the answer was too long and got cut)" : "";
+        res.status(502).json({ error: "The AI answer could not be read" + why + ". Try again, or send me the Vercel log." });
+        return;
+      }
+      throw lastError;
     }
+
+    const parsed = good.parsed;
     res.status(200).json({
       summary: String(parsed.summary || ""),
       corrected: String(parsed.corrected || ""),
@@ -330,7 +344,7 @@ module.exports = async function handler(req, res) {
           })
         : [],
       cards: cleanCards(parsed.cards, nCards),
-      model: process.env.OPENROUTER_MODEL || DEFAULT_MODEL
+      model: usedProvider + ":" + usedModel
     });
   } catch (err) {
     res.status(502).json({ error: String(err.message || err) });
